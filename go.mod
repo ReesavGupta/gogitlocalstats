@@ -1,3 +1,3 @@
-module github.com/ReesavGupta/local-git-contribution-visualizer
+module github.com/ReesavGupta/gogitlocalstats
 
 go 1.24.2
