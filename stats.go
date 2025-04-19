@@ -115,21 +115,24 @@ func printMonths() {
 // printCells prints the cells of the graph
 func printCells(cols map[int]column) {
 	printMonths()
+
+	today := time.Now()
+	todayWeek := countDaysSinceDate(today) / 7
+	todayDayInWeek := int(today.Weekday())
+
 	for j := 6; j >= 0; j-- {
 		for i := weeksInLastSixMonths + 1; i >= 0; i-- {
 			if i == weeksInLastSixMonths+1 {
 				printDayCol(j)
 			}
+
 			if col, ok := cols[i]; ok {
-				//special case today
-				if i == 0 && j == calcOffset()-1 {
-					printCell(col[j], true)
+				// Check if this is today's cell
+				isToday := (i == todayWeek && j == todayDayInWeek)
+
+				if len(col) > j {
+					printCell(col[j], isToday)
 					continue
-				} else {
-					if len(col) > j {
-						printCell(col[j], false)
-						continue
-					}
 				}
 			}
 			printCell(0, false)
@@ -141,21 +144,23 @@ func printCells(cols map[int]column) {
 // buildCols generates a map with rows and columns ready to be printed to screen
 func buildCols(keys []int, commits map[int]int) map[int]column {
 	cols := make(map[int]column)
-	col := column{}
 
-	for _, k := range keys {
-		week := int(k / 7) //26,25...1
-		dayinweek := k % 7 // 0,1,2,3,4,5,6
-
-		if dayinweek == 0 { //reset
-			col = column{}
+	for _, day := range keys {
+		if day >= daysInLastSixMonths {
+			continue
 		}
 
-		col = append(col, commits[k])
+		// Calculate position in the grid
+		weekNum := day / 7
+		dayInWeek := day % 7
 
-		if dayinweek == 6 {
-			cols[week] = col
+		// Initialize column if needed
+		if _, exists := cols[weekNum]; !exists {
+			cols[weekNum] = make(column, 7)
 		}
+
+		// Set commit count
+		cols[weekNum][dayInWeek] = commits[day]
 	}
 
 	return cols
@@ -190,15 +195,20 @@ func getBeginningOfDay(t time.Time) time.Time {
 
 // countDaysSinceDate counts how many days passed since the passed `date`
 func countDaysSinceDate(date time.Time) int {
-	days := 0
 	now := getBeginningOfDay(time.Now())
-	for date.Before(now) {
-		date = date.Add(time.Hour * 24)
-		days++
-		if days > daysInLastSixMonths {
-			return outOfRange
-		}
+	date = getBeginningOfDay(date)
+
+	if date.After(now) {
+		return outOfRange
 	}
+
+	duration := now.Sub(date)
+	days := int(duration.Hours() / 24)
+
+	if days > daysInLastSixMonths {
+		return outOfRange
+	}
+
 	return days
 }
 
@@ -227,44 +237,48 @@ func calcOffset() int {
 
 	return offset
 }
-
 func fillCommits(email string, path string, commits map[int]int) map[int]int {
 	repo, err := git.PlainOpen(path)
-
 	if err != nil {
-		panic(err)
+		fmt.Printf("Error opening repo %s: %v\n", path, err)
+		return commits
 	}
-	// get the HEAD reference
+
 	repoHeadRef, err := repo.Head()
-
 	if err != nil {
-		panic(err)
+		fmt.Printf("Skipping repo %s due to error: %v\n", path, err)
+		return commits
 	}
-	// get the commit history from HEAD
+	fmt.Printf("HEAD of %s points to: %s (%s)\n", path, repoHeadRef.Name(), repoHeadRef.Hash())
+
 	iterator, err := repo.Log(&git.LogOptions{From: repoHeadRef.Hash()})
-
 	if err != nil {
-		panic(err)
+		fmt.Printf("Skipping log reading for repo %s: %v\n", path, err)
+		return commits
 	}
+	iterator.ForEach(func(c *object.Commit) error {
+		fmt.Printf("[%s] %s by %s <%s>\n", path, c.Committer.When.Format("2006-01-02"), c.Author.Name, c.Author.Email)
+		return nil
+	})
 
-	offset := calcOffset()
+	// Reset iterator for the actual processing
+	iterator, _ = repo.Log(&git.LogOptions{From: repoHeadRef.Hash()})
 
 	err = iterator.ForEach(func(c *object.Commit) error {
-		daysAgo := countDaysSinceDate(c.Author.When) + offset
-
 		if c.Author.Email != email {
 			return nil
 		}
 
+		daysAgo := countDaysSinceDate(c.Author.When)
+
 		if daysAgo != outOfRange {
 			commits[daysAgo]++
 		}
-
 		return nil
 	})
 
 	if err != nil {
-		panic(err)
+		fmt.Printf("Error iterating commits for %s: %v\n", path, err)
 	}
 
 	return commits
@@ -272,14 +286,12 @@ func fillCommits(email string, path string, commits map[int]int) map[int]int {
 
 func processRepositories(email string) map[int]int {
 	filePath := getDotFilePath()
-
 	repos := parseFileLinesToSlice(filePath)
 
-	daysInMap := daysInLastSixMonths
+	commits := make(map[int]int, daysInLastSixMonths)
 
-	commits := make(map[int]int, daysInMap)
-
-	for i := daysInMap; i > 0; i-- {
+	// Initialize all days with zero commits
+	for i := range daysInLastSixMonths {
 		commits[i] = 0
 	}
 
