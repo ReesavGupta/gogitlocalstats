@@ -61,7 +61,6 @@ func fillCommits(email string, path string, commits map[int]int) map[int]int {
 	if err != nil {
 		return commits
 	}
-
 	offset := calcOffset()
 	err = iterator.ForEach(func(c *object.Commit) error {
 		if c.Author.Email != email {
@@ -131,12 +130,14 @@ func calcOffset() int {
 func printCell(val int, today bool) {
 	escape := "\033[0;37;30m"
 	switch {
-	case val > 0 && val < 5:
-		escape = "\033[1;30;47m"
-	case val >= 5 && val < 10:
-		escape = "\033[1;30;43m"
-	case val >= 10:
-		escape = "\033[1;30;42m"
+	case val > 0 && val < 2:
+		// escape = "\033[0;30;102m"
+		escape = "\033[0;30;46m"
+	case val >= 2 && val < 5:
+		// escape = "\033[0;30;42m"
+		escape = "\033[0;30;102m"
+	case val >= 5:
+		escape = "\033[0;30;42m"
 	}
 
 	if today {
@@ -213,7 +214,11 @@ func printCells(cols map[int]column) {
 			if col, ok := cols[i]; ok {
 				//special case today
 				if i == 0 && j == calcOffset()-1 {
-					printCell(col[j], true)
+					if len(col) > j {
+						printCell(col[j], true)
+					} else {
+						printCell(0, true)
+					}
 					continue
 				} else {
 					if len(col) > j {
